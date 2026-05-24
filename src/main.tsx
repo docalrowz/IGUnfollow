@@ -329,7 +329,7 @@ function App() {
 
   useEffect(() => {
     const scan = async () => {
-      if (state.status !== "scanning") {
+      if (state.status !== "scanning" || isLocalPreview) {
         return;
       }
       const results = [...state.results];
@@ -406,7 +406,7 @@ function App() {
 
   useEffect(() => {
     const unfollow = async () => {
-      if (state.status !== "unfollowing") {
+      if (state.status !== "unfollowing" || isLocalPreview) {
         return;
       }
 
