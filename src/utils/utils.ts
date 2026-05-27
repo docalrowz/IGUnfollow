@@ -1,4 +1,4 @@
-import { UserNode } from "../model/user";
+import { UserNode } from '../model/user';
 
 export async function copyListToClipboard(nonFollowersList: readonly UserNode[]): Promise<void> {
   const sortedList = [...nonFollowersList].sort((a, b) => (a.username > b.username ? 1 : -1));
@@ -7,10 +7,10 @@ export async function copyListToClipboard(nonFollowersList: readonly UserNode[])
 }
 
 export function exportToJSON(users: readonly UserNode[]) {
-  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(users, null, 2));
+  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(users, null, 2));
   const downloadAnchorNode = document.createElement('a');
-  downloadAnchorNode.setAttribute("href",     dataStr);
-  downloadAnchorNode.setAttribute("download", "instagram_unfollowers.json");
+  downloadAnchorNode.setAttribute('href', dataStr);
+  downloadAnchorNode.setAttribute('download', 'instagram_unfollowers.json');
   document.body.appendChild(downloadAnchorNode);
   downloadAnchorNode.click();
   downloadAnchorNode.remove();
@@ -24,17 +24,17 @@ export function exportToCSV(users: readonly UserNode[]) {
     `"${user.full_name.replace(/"/g, '""')}"`,
     user.is_verified,
     user.is_private,
-    user.profile_pic_url
+    user.profile_pic_url,
   ]);
 
-  const csvContent = "data:text/csv;charset=utf-8,"
-    + headers.join(",") + "\n"
-    + rows.map(e => e.join(",")).join("\n");
+  const csvContent = 'data:text/csv;charset=utf-8,'
+    + headers.join(',') + '\n'
+    + rows.map(e => e.join(',')).join('\n');
 
   const encodedUri = encodeURI(csvContent);
-  const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", "instagram_unfollowers.csv");
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', 'instagram_unfollowers.csv');
   document.body.appendChild(link);
   link.click();
   link.remove();

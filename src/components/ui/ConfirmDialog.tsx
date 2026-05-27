@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 /**
  * Preact-native replacement for the browser `confirm()` and `alert()`
@@ -24,18 +24,18 @@ interface DialogPayload {
   readonly resolve: (ok: boolean) => void;
 }
 
-type AskConfirmOptions = {
+interface AskConfirmOptions {
   readonly title?: string;
   readonly message: string;
   readonly confirmLabel?: string;
   readonly cancelLabel?: string;
-};
+}
 
-type AskAlertOptions = {
+interface AskAlertOptions {
   readonly title?: string;
   readonly message: string;
   readonly confirmLabel?: string;
-};
+}
 
 interface DialogContextValue {
   readonly confirm: (opts: AskConfirmOptions | string) => Promise<boolean>;
@@ -111,9 +111,9 @@ function ModalDialog({
   readonly onCancel: () => void;
 }) {
   return (
-    <div className="dialog-backdrop" role="presentation" onClick={onCancel}>
+    <div className='dialog-backdrop' role='presentation' onClick={onCancel}>
       <div
-        className="dialog"
+        className='dialog'
         role={payload.kind === 'alert' ? 'alertdialog' : 'dialog'}
         aria-modal='true'
         onClick={e => e.stopPropagation()}

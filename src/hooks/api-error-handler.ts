@@ -1,13 +1,13 @@
-import { Dispatch, SetStateAction } from "react";
+import { Dispatch, SetStateAction } from 'react';
 import {
   InstagramError,
   isCriticalError,
   isFatalError,
   isInstagramErrorException,
-} from "../core/error-types";
-import { AdaptiveRateLimiter } from "../core/rate-limiter";
-import { CircuitBreaker, CircuitOpenError } from "../core/circuit-breaker";
-import { isErrorRecoverable, State } from "../model/state";
+} from '../core/error-types';
+import { AdaptiveRateLimiter } from '../core/rate-limiter';
+import { CircuitBreaker, CircuitOpenError } from '../core/circuit-breaker';
+import { isErrorRecoverable, State } from '../model/state';
 
 export type ToastState = { readonly show: false } | { readonly show: true; readonly text: string };
 
