@@ -15,6 +15,7 @@ type ScanningState = {
   readonly whitelistedResults: readonly UserNode[];
   readonly selectedResults: readonly UserNode[];
   readonly filter: ScanningFilter;
+  readonly paused: boolean;
 };
 
 type UnfollowingState = {

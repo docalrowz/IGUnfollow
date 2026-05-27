@@ -10,27 +10,20 @@ import { DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
   DEFAULT_TIME_BETWEEN_UNFOLLOWS,
   DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
   DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS, INSTAGRAM_HOSTNAME } from "./constants/constants";
-import {
-  assertUnreachable,
-  getCurrentPageUnfollowers,
-  getUsersForDisplay, sleep,
-} from "./utils/utils";
+import { assertUnreachable } from "./utils/utils";
+import { getCurrentPageUnfollowers, getUsersForDisplay } from "./state/selectors";
 import { NotSearching } from "./components/NotSearching";
-import { State, isErrorRecoverable } from "./model/state";
+import { State } from "./model/state";
 import { Searching } from "./components/Searching";
 import { Toolbar } from "./components/Toolbar";
 import { Unfollowing } from "./components/Unfollowing";
 import { Timings } from "./model/timings";
 import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from "./utils/whitelist-manager";
-import { fetchFollowingPage, unfollowUser } from "./core/instagram-api";
-import {
-  InstagramError,
-  isCriticalError,
-  isFatalError,
-  isInstagramErrorException,
-} from "./core/error-types";
-import { AdaptiveRateLimiter } from "./core/rate-limiter";
-import { CircuitBreaker, CircuitOpenError } from "./core/circuit-breaker";
+import { DialogProvider, useConfirm } from "./components/ui/ConfirmDialog";
+import { InstagramError } from "./core/error-types";
+import { useScanner } from "./hooks/useScanner";
+import { useUnfollower } from "./hooks/useUnfollower";
+import { ToastState } from "./hooks/api-error-handler";
 
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const isLocalPreview = LOCAL_PREVIEW_HOSTS.has(location.hostname);
@@ -83,69 +76,6 @@ const _getPreviewUsers = (): readonly UserNode[] => [
   _createPreviewUser("12", "lowlight.club", "Owen Voss", { isPrivate: true }),
 ];
 
-// pause
-let scanningPaused = false;
-
-function pauseScan() {
-  scanningPaused = !scanningPaused;
-}
-
-type ToastState = { readonly show: false } | { readonly show: true; readonly text: string };
-
-/**
- * Routes an exception caught inside the scan or unfollow loop into the
- * adaptive limiter, the breaker, and (when fatal) the new `error`
- * state variant. Returns `"halt"` if the caller must stop the loop,
- * `"retry"` if the caller should continue (typically after the helper
- * has already waited for the limiter to back off).
- */
-async function handleApiError(
-  e: unknown,
-  limiter: AdaptiveRateLimiter,
-  breaker: CircuitBreaker,
-  previousStatus: 'scanning' | 'unfollowing',
-  setState: React.Dispatch<React.SetStateAction<State>>,
-  setToast: React.Dispatch<React.SetStateAction<ToastState>>,
-): Promise<'halt' | 'retry'> {
-  if (e instanceof CircuitOpenError) {
-    setState({
-      status: 'error',
-      error: { kind: 'rate_limit' },
-      recoverable: false,
-      previousStatus,
-    });
-    setToast({ show: false });
-    return 'halt';
-  }
-  if (!isInstagramErrorException(e)) {
-    console.error(e);
-    return 'retry';
-  }
-  const err: InstagramError = e.error;
-  if (isCriticalError(err)) {
-    breaker.recordCriticalError();
-  }
-  if (err.kind === 'rate_limit') {
-    limiter.onRateLimit(err.retryAfter);
-    setToast({
-      show: true,
-      text: `Rate limited. Backing off to ${Math.round(limiter.getCurrentDelay() / 1000)}s.`,
-    });
-  }
-  if (isFatalError(err) || breaker.isOpen() || !isErrorRecoverable(err)) {
-    setState({
-      status: 'error',
-      error: err,
-      recoverable: isErrorRecoverable(err) && !breaker.isOpen(),
-      previousStatus,
-    });
-    setToast({ show: false });
-    return 'halt';
-  }
-  await limiter.wait();
-  return 'retry';
-}
-
 interface ErrorScreenProps {
   readonly error: InstagramError;
   readonly recoverable: boolean;
@@ -153,12 +83,10 @@ interface ErrorScreenProps {
 }
 
 function ErrorScreen({ error, recoverable, onReset }: ErrorScreenProps) {
-  const title = errorTitle(error);
-  const detail = errorDetail(error);
   return (
     <section className="error-screen" role="alert">
-      <h2>{title}</h2>
-      <p>{detail}</p>
+      <h2>{errorTitle(error)}</h2>
+      <p>{errorDetail(error)}</p>
       {recoverable
         ? <p>You can safely try again in a few moments.</p>
         : <p>Reload the page and verify your account on Instagram before retrying.</p>}
@@ -194,49 +122,58 @@ function errorDetail(error: InstagramError): string {
 
 
 function App() {
-  const [state, setState] = useState<State>({
-    ...(
-      isLocalPreview && new URLSearchParams(location.search).get("preview") === "scanning"
-        ? {
-          status: "scanning",
-          page: 1,
-          searchTerm: "",
-          currentTab: "non_whitelisted",
-          percentage: 100,
-          results: _getPreviewUsers(),
-          selectedResults: _getPreviewUsers().slice(0, 3),
-          whitelistedResults: _getPreviewUsers().slice(10, 12),
-          filter: {
-            showNonFollowers: true,
-            showFollowers: false,
-            showVerified: true,
-            showPrivate: true,
-            showWithOutProfilePicture: true,
-          },
-        } as State
-        : { status: "initial" as const }
-    ),
+  const askConfirm = useConfirm();
+
+  const [state, setState] = useState<State>(() => (
+    isLocalPreview && new URLSearchParams(location.search).get("preview") === "scanning"
+      ? {
+        status: "scanning",
+        page: 1,
+        searchTerm: "",
+        currentTab: "non_whitelisted",
+        percentage: 100,
+        results: _getPreviewUsers(),
+        selectedResults: _getPreviewUsers().slice(0, 3),
+        whitelistedResults: _getPreviewUsers().slice(10, 12),
+        paused: false,
+        filter: {
+          showNonFollowers: true,
+          showFollowers: false,
+          showVerified: true,
+          showPrivate: true,
+          showWithOutProfilePicture: true,
+        },
+      }
+      : { status: "initial" }
+  ));
+
+  const [toast, setToast] = useState<ToastState>({ show: false });
+
+  const [timings, setTimings] = useState<Timings>(() => loadTimings() ?? {
+    timeBetweenSearchCycles: DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
+    timeToWaitAfterFiveSearchCycles: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
+    timeBetweenUnfollows: DEFAULT_TIME_BETWEEN_UNFOLLOWS,
+    timeToWaitAfterFiveUnfollows: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS,
   });
 
-  const [toast, setToast] = useState<{ readonly show: false } | { readonly show: true; readonly text: string }>({
-    show: false,
-  });
-
-  const [timings, setTimings] = useState<Timings>(() => {
-    const storedTimings = loadTimings();
-    return storedTimings ?? {
-      timeBetweenSearchCycles: DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
-      timeToWaitAfterFiveSearchCycles: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
-      timeBetweenUnfollows: DEFAULT_TIME_BETWEEN_UNFOLLOWS,
-      timeToWaitAfterFiveUnfollows: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS,
-    };
-  });
-
-  // Save timings whenever they change
   useEffect(() => {
     saveTimings(timings);
   }, [timings]);
 
+  useScanner({ state, setState, setToast, timings, isLocalPreview });
+  useUnfollower({
+    state,
+    setState,
+    setToast,
+    timings,
+    isLocalPreview,
+    confirm: message => askConfirm({
+      title: 'Resume previous batch?',
+      message,
+      confirmLabel: 'Resume',
+      cancelLabel: 'Discard',
+    }),
+  });
 
   let isActiveProcess: boolean;
   switch (state.status) {
@@ -267,6 +204,7 @@ function App() {
         results: previewUsers,
         selectedResults: previewUsers.slice(0, 3),
         whitelistedResults: previewUsers.slice(10, 12),
+        paused: false,
         filter: {
           showNonFollowers: true,
           showFollowers: false,
@@ -287,6 +225,7 @@ function App() {
       results: [],
       selectedResults: [],
       whitelistedResults,
+      paused: false,
       filter: {
         showNonFollowers: true,
         showFollowers: false,
@@ -297,28 +236,33 @@ function App() {
     });
   };
 
-  const handleScanFilter = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleScanFilter = async (e: ChangeEvent<HTMLInputElement>) => {
     if (state.status !== "scanning") {
       return;
     }
+    const fieldName = e.currentTarget.name;
+    const checked = e.currentTarget.checked;
     if (state.selectedResults.length > 0) {
-      if (!confirm("Changing filter options will clear selected users")) {
-        // Force re-render. Bit of a hack but had an issue where the checkbox state was still
-        // changing in the UI even even when not confirming. So updating the state fixes this
-        // by synchronizing the checkboxes with the filter statuses in the state.
+      const ok = await askConfirm({
+        title: 'Change filter?',
+        message: 'Changing filter options will clear selected users.',
+        confirmLabel: 'Change filter',
+      });
+      if (!ok) {
+        // Force re-render so the checkbox UI snaps back to the underlying filter state.
         setState({ ...state });
         return;
       }
     }
-    setState({
-      ...state,
-      // Make sure to clear selected results when changing filter options. This is to avoid having
-      // users selected in the unfollow queue but not visible in the UI, which would be confusing.
-      selectedResults: [],
-      filter: {
-        ...state.filter,
-        [e.currentTarget.name]: e.currentTarget.checked,
-      },
+    setState(prev => {
+      if (prev.status !== 'scanning') {
+        return prev;
+      }
+      return {
+        ...prev,
+        selectedResults: [],
+        filter: { ...prev.filter, [fieldName]: checked },
+      };
     });
   };
 
@@ -375,7 +319,6 @@ function App() {
     }
   };
 
-  // it will work the same as toggleAllUsers, but it will select everyone on the current page.
   const toggleCurrentePageUsers = (e: ChangeEvent<HTMLInputElement>) => {
     if (state.status !== "scanning") {
       return;
@@ -412,176 +355,26 @@ function App() {
     }
   };
 
+  const togglePause = () => {
+    setState(prev => prev.status === 'scanning' ? { ...prev, paused: !prev.paused } : prev);
+  };
+
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Prompt user if he tries to leave while in the middle of a process (searching / unfollowing / etc..)
-      // This is especially good for avoiding accidental tab closing which would result in a frustrating experience.
       if (!isActiveProcess) {
         return;
       }
-
-      // `e` Might be undefined in older browsers, so silence linter for this one.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       e = e || window.event;
-
-      // `e` Might be undefined in older browsers, so silence linter for this one.
-      // For IE and Firefox prior to version 4
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (e) {
         e.returnValue = "Changes you made may not be saved.";
       }
-
-      // For Safari
       return "Changes you made may not be saved.";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isActiveProcess, state]);
-
-  useEffect(() => {
-    const scan = async () => {
-      if (state.status !== "scanning" || isLocalPreview) {
-        return;
-      }
-      const limiter = new AdaptiveRateLimiter({
-        baseDelay: timings.timeBetweenSearchCycles,
-        jitterRatio: 0.2,
-      });
-      const breaker = new CircuitBreaker();
-      const results: UserNode[] = [...state.results];
-      let scrollCycle = 0;
-      let cursor: string | undefined;
-      let hasNext = true;
-      let currentFollowedUsersCount = 0;
-      let totalFollowedUsersCount = -1;
-
-      while (hasNext) {
-        try {
-          breaker.ensureClosed();
-          const page = await fetchFollowingPage(cursor);
-          limiter.onSuccess();
-          breaker.recordSuccess();
-
-          if (totalFollowedUsersCount === -1) {
-            totalFollowedUsersCount = page.totalCount;
-          }
-          hasNext = page.hasNext;
-          cursor = page.endCursor;
-          currentFollowedUsersCount += page.users.length;
-          page.users.forEach(u => results.push(u));
-
-          setState(prevState => {
-            if (prevState.status !== "scanning") {
-              return prevState;
-            }
-            // Math.round (not Math.floor) so progress can reach exactly 100%.
-            return {
-              ...prevState,
-              percentage: Math.round((currentFollowedUsersCount / totalFollowedUsersCount) * 100),
-              results,
-            };
-          });
-        } catch (e) {
-          const handled = await handleApiError(e, limiter, breaker, "scanning", setState, setToast);
-          if (handled === "halt") {
-            return;
-          }
-          continue;
-        }
-
-        while (scanningPaused) {
-          await sleep(1000);
-          console.info("Scan paused");
-        }
-
-        // Human-like micro-pause between fetches; layered on top of the
-        // adaptive limiter's own jittered delay below.
-        const microPause = Math.floor(Math.random() * 1500) + 500;
-        await sleep(microPause);
-
-        await limiter.wait();
-
-        scrollCycle++;
-        if (scrollCycle > 6) {
-          scrollCycle = 0;
-          const longSleepVar = Math.max(
-            0,
-            timings.timeToWaitAfterFiveSearchCycles + (Math.random() * 10000 - 5000),
-          );
-          setToast({ show: true, text: `Sleeping ${Math.round(longSleepVar / 1000)} seconds to prevent getting temp blocked` });
-          await sleep(longSleepVar);
-        }
-        setToast({ show: false });
-      }
-      setToast({ show: true, text: "Scanning completed!" });
-    };
-    scan();
-    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status]);
-
-  useEffect(() => {
-    const unfollow = async () => {
-      if (state.status !== "unfollowing" || isLocalPreview) {
-        return;
-      }
-      const limiter = new AdaptiveRateLimiter({
-        baseDelay: timings.timeBetweenUnfollows,
-        jitterRatio: 0.2,
-      });
-      const breaker = new CircuitBreaker();
-
-      let counter = 0;
-      for (const user of state.selectedResults) {
-        counter += 1;
-        // Math.round (not Math.floor) so progress can reach exactly 100%.
-        const percentage = Math.round((counter / state.selectedResults.length) * 100);
-
-        let success: boolean;
-        try {
-          breaker.ensureClosed();
-          await unfollowUser(user.id);
-          limiter.onSuccess();
-          breaker.recordSuccess();
-          success = true;
-        } catch (e) {
-          const handled = await handleApiError(e, limiter, breaker, "unfollowing", setState, setToast);
-          if (handled === "halt") {
-            return;
-          }
-          success = false;
-        }
-
-        setState(prevState => {
-          if (prevState.status !== "unfollowing") {
-            return prevState;
-          }
-          return {
-            ...prevState,
-            percentage,
-            unfollowLog: [
-              ...prevState.unfollowLog,
-              { user, unfollowedSuccessfully: success },
-            ],
-          };
-        });
-
-        if (user === state.selectedResults[state.selectedResults.length - 1]) {
-          break;
-        }
-        await limiter.wait();
-
-        if (counter % 5 === 0) {
-          setToast({ show: true, text: `Sleeping ${timings.timeToWaitAfterFiveUnfollows / 60000 } minutes to prevent getting temp blocked` });
-          await sleep(timings.timeToWaitAfterFiveUnfollows);
-        }
-        setToast({ show: false });
-      }
-    };
-    unfollow();
-    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status]);
+  }, [isActiveProcess]);
 
   let markup: React.JSX.Element;
   switch (state.status) {
@@ -594,9 +387,9 @@ function App() {
         state={state}
         handleScanFilter={handleScanFilter}
         toggleUser={toggleUser}
-        pauseScan={pauseScan}
+        pauseScan={togglePause}
         setState={setState}
-        scanningPaused={scanningPaused}
+        scanningPaused={state.paused}
         UserCheckIcon={UserCheckIcon}
         UserUncheckIcon={UserUncheckIcon}
       ></Searching>;
@@ -652,5 +445,10 @@ if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
 } else {
   document.title = "InstagramUnfollowers";
   document.body.innerHTML = "";
-  render(<App />, document.body);
+  render(
+    <DialogProvider>
+      <App />
+    </DialogProvider>,
+    document.body,
+  );
 }
