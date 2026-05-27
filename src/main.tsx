@@ -10,20 +10,27 @@ import { DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
   DEFAULT_TIME_BETWEEN_UNFOLLOWS,
   DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
   DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS, INSTAGRAM_HOSTNAME } from "./constants/constants";
-import { assertUnreachable } from "./utils/utils";
-import { getCurrentPageUnfollowers, getUsersForDisplay } from "./state/selectors";
+import {
+  assertUnreachable,
+  getCurrentPageUnfollowers,
+  getUsersForDisplay, sleep,
+} from "./utils/utils";
 import { NotSearching } from "./components/NotSearching";
-import { State } from "./model/state";
+import { State, isErrorRecoverable } from "./model/state";
 import { Searching } from "./components/Searching";
 import { Toolbar } from "./components/Toolbar";
 import { Unfollowing } from "./components/Unfollowing";
 import { Timings } from "./model/timings";
 import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from "./utils/whitelist-manager";
-import { DialogProvider, useConfirm } from "./components/ui/ConfirmDialog";
-import { InstagramError } from "./core/error-types";
-import { useScanner } from "./hooks/useScanner";
-import { useUnfollower } from "./hooks/useUnfollower";
-import { ToastState } from "./hooks/api-error-handler";
+import { fetchFollowingPage, unfollowUser } from "./core/instagram-api";
+import {
+  InstagramError,
+  isCriticalError,
+  isFatalError,
+  isInstagramErrorException,
+} from "./core/error-types";
+import { AdaptiveRateLimiter } from "./core/rate-limiter";
+import { CircuitBreaker, CircuitOpenError } from "./core/circuit-breaker";
 
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const isLocalPreview = LOCAL_PREVIEW_HOSTS.has(location.hostname);
@@ -87,6 +94,108 @@ function ErrorScreen({ error, recoverable, onReset }: ErrorScreenProps) {
     <section className="error-screen" role="alert">
       <h2>{errorTitle(error)}</h2>
       <p>{errorDetail(error)}</p>
+      {recoverable
+        ? <p>You can safely try again in a few moments.</p>
+        : <p>Reload the page and verify your account on Instagram before retrying.</p>}
+      <button type="button" onClick={onReset}>Back to start</button>
+    </section>
+  );
+}
+
+function errorTitle(error: InstagramError): string {
+  switch (error.kind) {
+    case 'checkpoint':   return 'Instagram requires you to verify this account';
+    case 'rate_limit':   return 'Rate-limited by Instagram';
+    case 'csrf_expired': return 'Your Instagram session expired';
+    case 'network':      return 'Network error';
+    case 'unknown':      return 'Unexpected response from Instagram';
+  }
+}
+
+function errorDetail(error: InstagramError): string {
+  switch (error.kind) {
+    case 'checkpoint':
+      return 'The scan was stopped to avoid making things worse. Open Instagram in a normal tab, resolve the checkpoint, then come back.';
+    case 'rate_limit':
+      return 'Too many requests have been made. The circuit breaker tripped to protect your account.';
+    case 'csrf_expired':
+      return 'Instagram rotated your session token. Refresh the page and log back in.';
+    case 'network':
+      return 'Could not reach Instagram. Check your connection and try again.';
+    case 'unknown':
+      return `Status ${error.status}. See the developer console for the raw response.`;
+  }
+}
+
+type ToastState = { readonly show: false } | { readonly show: true; readonly text: string };
+
+/**
+ * Routes an exception caught inside the scan or unfollow loop into the
+ * adaptive limiter, the breaker, and (when fatal) the new `error`
+ * state variant. Returns `"halt"` if the caller must stop the loop,
+ * `"retry"` if the caller should continue (typically after the helper
+ * has already waited for the limiter to back off).
+ */
+async function handleApiError(
+  e: unknown,
+  limiter: AdaptiveRateLimiter,
+  breaker: CircuitBreaker,
+  previousStatus: 'scanning' | 'unfollowing',
+  setState: React.Dispatch<React.SetStateAction<State>>,
+  setToast: React.Dispatch<React.SetStateAction<ToastState>>,
+): Promise<'halt' | 'retry'> {
+  if (e instanceof CircuitOpenError) {
+    setState({
+      status: 'error',
+      error: { kind: 'rate_limit' },
+      recoverable: false,
+      previousStatus,
+    });
+    setToast({ show: false });
+    return 'halt';
+  }
+  if (!isInstagramErrorException(e)) {
+    console.error(e);
+    return 'retry';
+  }
+  const err: InstagramError = e.error;
+  if (isCriticalError(err)) {
+    breaker.recordCriticalError();
+  }
+  if (err.kind === 'rate_limit') {
+    limiter.onRateLimit(err.retryAfter);
+    setToast({
+      show: true,
+      text: `Rate limited. Backing off to ${Math.round(limiter.getCurrentDelay() / 1000)}s.`,
+    });
+  }
+  if (isFatalError(err) || breaker.isOpen() || !isErrorRecoverable(err)) {
+    setState({
+      status: 'error',
+      error: err,
+      recoverable: isErrorRecoverable(err) && !breaker.isOpen(),
+      previousStatus,
+    });
+    setToast({ show: false });
+    return 'halt';
+  }
+  await limiter.wait();
+  return 'retry';
+}
+
+interface ErrorScreenProps {
+  readonly error: InstagramError;
+  readonly recoverable: boolean;
+  readonly onReset: () => void;
+}
+
+function ErrorScreen({ error, recoverable, onReset }: ErrorScreenProps) {
+  const title = errorTitle(error);
+  const detail = errorDetail(error);
+  return (
+    <section className="error-screen" role="alert">
+      <h2>{title}</h2>
+      <p>{detail}</p>
       {recoverable
         ? <p>You can safely try again in a few moments.</p>
         : <p>Reload the page and verify your account on Instagram before retrying.</p>}
@@ -374,7 +483,152 @@ function App() {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isActiveProcess]);
+  }, [isActiveProcess, state]);
+
+  useEffect(() => {
+    const scan = async () => {
+      if (state.status !== "scanning" || isLocalPreview) {
+        return;
+      }
+      const limiter = new AdaptiveRateLimiter({
+        baseDelay: timings.timeBetweenSearchCycles,
+        jitterRatio: 0.2,
+      });
+      const breaker = new CircuitBreaker();
+      const results: UserNode[] = [...state.results];
+      let scrollCycle = 0;
+      let cursor: string | undefined;
+      let hasNext = true;
+      let currentFollowedUsersCount = 0;
+      let totalFollowedUsersCount = -1;
+
+      while (hasNext) {
+        try {
+          breaker.ensureClosed();
+          const page = await fetchFollowingPage(cursor);
+          limiter.onSuccess();
+          breaker.recordSuccess();
+
+          if (totalFollowedUsersCount === -1) {
+            totalFollowedUsersCount = page.totalCount;
+          }
+          hasNext = page.hasNext;
+          cursor = page.endCursor;
+          currentFollowedUsersCount += page.users.length;
+          page.users.forEach(u => results.push(u));
+
+          setState(prevState => {
+            if (prevState.status !== "scanning") {
+              return prevState;
+            }
+            // Math.round (not Math.floor) so progress can reach exactly 100%.
+            return {
+              ...prevState,
+              percentage: Math.round((currentFollowedUsersCount / totalFollowedUsersCount) * 100),
+              results,
+            };
+          });
+        } catch (e) {
+          const handled = await handleApiError(e, limiter, breaker, "scanning", setState, setToast);
+          if (handled === "halt") {
+            return;
+          }
+          continue;
+        }
+
+        while (scanningPaused) {
+          await sleep(1000);
+          console.info("Scan paused");
+        }
+
+        // Human-like micro-pause between fetches; layered on top of the
+        // adaptive limiter's own jittered delay below.
+        const microPause = Math.floor(Math.random() * 1500) + 500;
+        await sleep(microPause);
+
+        await limiter.wait();
+
+        scrollCycle++;
+        if (scrollCycle > 6) {
+          scrollCycle = 0;
+          const longSleepVar = Math.max(
+            0,
+            timings.timeToWaitAfterFiveSearchCycles + (Math.random() * 10000 - 5000),
+          );
+          setToast({ show: true, text: `Sleeping ${Math.round(longSleepVar / 1000)} seconds to prevent getting temp blocked` });
+          await sleep(longSleepVar);
+        }
+        setToast({ show: false });
+      }
+      setToast({ show: true, text: "Scanning completed!" });
+    };
+    scan();
+    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status]);
+
+  useEffect(() => {
+    const unfollow = async () => {
+      if (state.status !== "unfollowing" || isLocalPreview) {
+        return;
+      }
+      const limiter = new AdaptiveRateLimiter({
+        baseDelay: timings.timeBetweenUnfollows,
+        jitterRatio: 0.2,
+      });
+      const breaker = new CircuitBreaker();
+
+      let counter = 0;
+      for (const user of state.selectedResults) {
+        counter += 1;
+        // Math.round (not Math.floor) so progress can reach exactly 100%.
+        const percentage = Math.round((counter / state.selectedResults.length) * 100);
+
+        let success: boolean;
+        try {
+          breaker.ensureClosed();
+          await unfollowUser(user.id);
+          limiter.onSuccess();
+          breaker.recordSuccess();
+          success = true;
+        } catch (e) {
+          const handled = await handleApiError(e, limiter, breaker, "unfollowing", setState, setToast);
+          if (handled === "halt") {
+            return;
+          }
+          success = false;
+        }
+
+        setState(prevState => {
+          if (prevState.status !== "unfollowing") {
+            return prevState;
+          }
+          return {
+            ...prevState,
+            percentage,
+            unfollowLog: [
+              ...prevState.unfollowLog,
+              { user, unfollowedSuccessfully: success },
+            ],
+          };
+        });
+
+        if (user === state.selectedResults[state.selectedResults.length - 1]) {
+          break;
+        }
+        await limiter.wait();
+
+        if (counter % 5 === 0) {
+          setToast({ show: true, text: `Sleeping ${timings.timeToWaitAfterFiveUnfollows / 60000 } minutes to prevent getting temp blocked` });
+          await sleep(timings.timeToWaitAfterFiveUnfollows);
+        }
+        setToast({ show: false });
+      }
+    };
+    unfollow();
+    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status]);
 
   let markup: React.JSX.Element;
   switch (state.status) {

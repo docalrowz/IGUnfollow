@@ -61,12 +61,13 @@ export const Toolbar = ({
                   }
                   break;
 
-                case "scanning":
-                case "unfollowing":
-                case "error":
-                  setState({ status: "initial" });
-              }
-            })();
+              case "scanning":
+              case "unfollowing":
+              case "error":
+                setState({
+                  status: "initial",
+                });
+            }
           }}
         >
           <Logo />
@@ -79,28 +80,24 @@ export const Toolbar = ({
           <button
             className="copy-list"
             onClick={() => {
-              void (async () => {
-                switch (state.status) {
-                  case "scanning":
-                    await copyListToClipboard(
-                      getUsersForDisplay(
-                        state.results,
-                        state.whitelistedResults,
-                        state.currentTab,
-                        state.searchTerm,
-                        state.filter,
-                      ),
-                    );
-                    await askAlert("List copied to clipboard.");
-                    return;
-                  case "initial":
-                  case "unfollowing":
-                  case "error":
-                    return;
-                  default:
-                    assertUnreachable(state);
-                }
-              })();
+              switch (state.status) {
+                case "scanning":
+                  return copyListToClipboard(
+                    getUsersForDisplay(
+                      state.results,
+                      state.whitelistedResults,
+                      state.currentTab,
+                      state.searchTerm,
+                      state.filter,
+                    ),
+                  );
+                case "initial":
+                case "unfollowing":
+                case "error":
+                  return;
+                default:
+                  assertUnreachable(state);
+              }
             }}
             disabled={state.status === "initial" || state.status === "error"}
           >

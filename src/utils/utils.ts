@@ -66,3 +66,4 @@ export function getCookie(name: string): string | null {
   }
   return parts.pop()!.split(';').shift()!;
 }
+
