@@ -1,10 +1,10 @@
-import { UserNode } from "../model/user";
-import { UNFOLLOWERS_PER_PAGE, WITHOUT_PROFILE_PICTURE_URL_IDS } from "../constants/constants";
-import { ScanningTab } from "../model/scanning-tab";
-import { ScanningFilter } from "../model/scanning-filter";
-import { UnfollowLogEntry } from "../model/unfollow-log-entry";
-import { UnfollowFilter } from "../model/unfollow-filter";
-import { assertUnreachable } from "../utils/utils";
+import { UserNode } from '../model/user';
+import { UNFOLLOWERS_PER_PAGE, WITHOUT_PROFILE_PICTURE_URL_IDS } from '../constants/constants';
+import { ScanningTab } from '../model/scanning-tab';
+import { ScanningFilter } from '../model/scanning-filter';
+import { UnfollowLogEntry } from '../model/unfollow-log-entry';
+import { UnfollowFilter } from '../model/unfollow-filter';
+import { assertUnreachable } from '../utils/utils';
 
 /**
  * Pure functions that derive view-data from the current state.
@@ -38,16 +38,26 @@ export function getUsersForDisplay(
   searchTerm: string,
   filter: ScanningFilter,
 ): readonly UserNode[] {
+  // O(n + m). Previous Array.find per row was O(n*m), which gets slow
+  // fast on large follow counts (1k follows + 500 whitelist = 500k ops
+  // per render). Also lowercase the search term once instead of twice
+  // per row.
+  const whitelistedIds = new Set<string>();
+  for (const u of whitelistedResults) {
+    whitelistedIds.add(u.id);
+  }
+  const lowerSearch = searchTerm.toLowerCase();
+  const hasSearch = searchTerm !== '';
   const users: UserNode[] = [];
   for (const result of results) {
-    const isWhitelisted = whitelistedResults.find(user => user.id === result.id) !== undefined;
+    const isWhitelisted = whitelistedIds.has(result.id);
     switch (currentTab) {
-      case "non_whitelisted":
+      case 'non_whitelisted':
         if (isWhitelisted) {
           continue;
         }
         break;
-      case "whitelisted":
+      case 'whitelisted':
         if (!isWhitelisted) {
           continue;
         }
@@ -70,11 +80,13 @@ export function getUsersForDisplay(
     if (!filter.showWithOutProfilePicture && isWithoutProfilePicture(result)) {
       continue;
     }
-    const userMatchesSearchTerm =
-      result.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      result.full_name.toLowerCase().includes(searchTerm.toLowerCase());
-    if (searchTerm !== "" && !userMatchesSearchTerm) {
-      continue;
+    if (hasSearch) {
+      const userMatchesSearchTerm =
+        result.username.toLowerCase().includes(lowerSearch) ||
+        result.full_name.toLowerCase().includes(lowerSearch);
+      if (!userMatchesSearchTerm) {
+        continue;
+      }
     }
     users.push(result);
   }
@@ -86,6 +98,8 @@ export function getUnfollowLogForDisplay(
   searchTerm: string,
   filter: UnfollowFilter,
 ): readonly UnfollowLogEntry[] {
+  const lowerSearch = searchTerm.toLowerCase();
+  const hasSearch = searchTerm !== '';
   const entries: UnfollowLogEntry[] = [];
   for (const entry of log) {
     if (!filter.showSucceeded && entry.unfollowedSuccessfully) {
@@ -94,8 +108,7 @@ export function getUnfollowLogForDisplay(
     if (!filter.showFailed && !entry.unfollowedSuccessfully) {
       continue;
     }
-    const userMatchesSearchTerm = entry.user.username.toLowerCase().includes(searchTerm.toLowerCase());
-    if (searchTerm !== "" && !userMatchesSearchTerm) {
+    if (hasSearch && !entry.user.username.toLowerCase().includes(lowerSearch)) {
       continue;
     }
     entries.push(entry);
