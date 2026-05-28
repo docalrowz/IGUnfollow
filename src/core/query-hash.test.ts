@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  awaitQueryHash,
   extractQueryHash,
   getFallbackQueryHash,
   getQueryHash,
@@ -81,5 +82,48 @@ describe('getQueryHash', () => {
     resetQueryHashCache();
     getQueryHash();
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('awaitQueryHash', () => {
+  beforeEach(() => {
+    resetQueryHashCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetQueryHashCache();
+  });
+
+  it('returns cached value immediately if already populated', async () => {
+    vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+      { name: 'https://x?query_hash=cafebabecafebabecafebabecafebabe' } as PerformanceEntry,
+    ]);
+    getQueryHash();
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(awaitQueryHash(5000, 100, sleep)).resolves.toBe('cafebabecafebabecafebabecafebabe');
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('polls until a hash appears, then caches it', async () => {
+    let call = 0;
+    vi.spyOn(performance, 'getEntriesByType').mockImplementation(() => {
+      call++;
+      if (call < 3) {
+        return [];
+      }
+      return [
+        { name: 'https://x?query_hash=deadbeefdeadbeefdeadbeefdeadbeef' } as PerformanceEntry,
+      ];
+    });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(awaitQueryHash(5000, 10, sleep)).resolves.toBe('deadbeefdeadbeefdeadbeefdeadbeef');
+    expect(sleep).toHaveBeenCalled();
+  });
+
+  it('settles on fallback after maxWaitMs elapses with no detection', async () => {
+    vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(awaitQueryHash(20, 10, sleep)).resolves.toBe(getFallbackQueryHash());
   });
 });

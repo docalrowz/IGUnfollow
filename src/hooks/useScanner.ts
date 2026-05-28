@@ -5,6 +5,7 @@ import { UserNode } from '../model/user';
 import { AdaptiveRateLimiter } from '../core/rate-limiter';
 import { CircuitBreaker } from '../core/circuit-breaker';
 import { fetchFollowingPage } from '../core/instagram-api';
+import { awaitQueryHash } from '../core/query-hash';
 import { sleep } from '../utils/utils';
 import { handleApiError, ToastState } from './api-error-handler';
 
@@ -42,6 +43,11 @@ export function useScanner({
       if (state.status !== 'scanning' || isLocalPreview) {
         return;
       }
+      // Probe-seed: wait briefly for Instagram to make a natural
+      // graphql/query so we pick up a live query_hash before falling
+      // back to the hardcoded one.
+      await awaitQueryHash();
+
       const limiter = new AdaptiveRateLimiter({
         baseDelay: timings.timeBetweenSearchCycles,
         jitterRatio: 0.2,

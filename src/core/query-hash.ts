@@ -26,6 +26,42 @@ export function getQueryHash(): string {
   return cached;
 }
 
+/**
+ * Polls PerformanceObserver entries up to `maxWaitMs` for a real
+ * `query_hash` before settling on the hardcoded fallback. Use this
+ * once per session before starting the scan loop: on a freshly-opened
+ * Instagram tab, the browser may not have made any `graphql/query`
+ * request yet, so the sync `getQueryHash()` returns the fallback. A
+ * short poll catches the natural feed/profile fetches Instagram makes
+ * during page settle.
+ */
+export async function awaitQueryHash(
+  maxWaitMs = 5000,
+  pollIntervalMs = 250,
+  sleepFn: (ms: number) => Promise<void> = defaultSleep,
+): Promise<string> {
+  if (cached !== null) {
+    return cached;
+  }
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const detected = detectFromPerformanceEntries();
+    if (detected !== null) {
+      cached = detected;
+      return cached;
+    }
+    await sleepFn(pollIntervalMs);
+  }
+  cached = FALLBACK_QUERY_HASH;
+  return cached;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
+}
+
 /** Test/debug helper — drops the in-memory cache. */
 export function resetQueryHashCache(): void {
   cached = null;
