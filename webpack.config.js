@@ -31,6 +31,7 @@ module.exports = {
         extensions: ['.tsx', '.ts', '.js', '.jsx'],
         alias: {
             react: 'preact/compat',
+            'react-dom/client': 'preact/compat/client',
             'react-dom': 'preact/compat',
         },
     },

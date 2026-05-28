@@ -186,23 +186,52 @@ interface EdgeFollow {
   readonly edges: ReadonlyArray<{ readonly node: UserNode }>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function readEdgeFollow(body: unknown): EdgeFollow | null {
-  if (typeof body !== 'object' || body === null) {
+  if (!isRecord(body)) {
     return null;
   }
-  const data = (body as Record<string, unknown>).data;
-  if (typeof data !== 'object' || data === null) {
+  const { data } = body;
+  if (!isRecord(data)) {
     return null;
   }
-  const user = (data as Record<string, unknown>).user;
-  if (typeof user !== 'object' || user === null) {
+  const { user } = data;
+  if (!isRecord(user)) {
     return null;
   }
-  const edgeFollow = (user as Record<string, unknown>).edge_follow;
-  if (typeof edgeFollow !== 'object' || edgeFollow === null) {
+  const edgeFollow = user.edge_follow;
+  if (!isRecord(edgeFollow)) {
     return null;
   }
-  return edgeFollow as unknown as EdgeFollow;
+
+  const { count, page_info, edges } = edgeFollow;
+  if (typeof count !== 'number') {
+    return null;
+  }
+  if (!isRecord(page_info)) {
+    return null;
+  }
+  if (typeof page_info.has_next_page !== 'boolean') {
+    return null;
+  }
+  if (typeof page_info.end_cursor !== 'string') {
+    return null;
+  }
+  if (!Array.isArray(edges)) {
+    return null;
+  }
+
+  return {
+    count,
+    page_info: {
+      has_next_page: page_info.has_next_page,
+      end_cursor: page_info.end_cursor,
+    },
+    edges: edges as ReadonlyArray<{ readonly node: UserNode }>,
+  };
 }
 
 async function safeJson(response: Response): Promise<unknown> {

@@ -1,8 +1,5 @@
 import React, { ChangeEvent, useEffect, useState } from 'react';
-// `react-dom` is aliased to `preact/compat` in webpack.config.js + tsconfig.json,
-// so the `react/no-deprecated` warning about React 18's createRoot does not apply.
-// eslint-disable-next-line react/no-deprecated
-import { render } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import './styles.scss';
 
 import { Typename, UserNode } from './model/user';
@@ -436,7 +433,7 @@ if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
   const root = document.createElement('div');
   root.id = 'iu-root';
   document.body.appendChild(root);
-  render(
+  createRoot(root).render(
     <ErrorBoundary>
       <ThemeProvider>
         <TranslationProvider>
@@ -446,7 +443,6 @@ if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
         </TranslationProvider>
       </ThemeProvider>
     </ErrorBoundary>,
-    root,
   );
 }
 
