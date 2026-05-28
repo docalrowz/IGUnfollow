@@ -410,7 +410,7 @@ function App() {
 
         {markup}
 
-        {toast.show && <Toast show={toast.show} message={toast.text} onClose={() => setToast({ show: false })} />}
+        {toast.show && <Toast show={toast.show} message={toast.text} style={toast.style} onClose={() => setToast({ show: false })} />}
       </section>
     </main>
   );

@@ -9,7 +9,11 @@ import { AdaptiveRateLimiter } from '../core/rate-limiter';
 import { CircuitBreaker, CircuitOpenError } from '../core/circuit-breaker';
 import { isErrorRecoverable, State } from '../model/state';
 
-export type ToastState = { readonly show: false } | { readonly show: true; readonly text: string };
+export type ToastStyle = 'info' | 'success' | 'warning' | 'error';
+
+export type ToastState =
+  | { readonly show: false }
+  | { readonly show: true; readonly text: string; readonly style?: ToastStyle };
 
 /**
  * Shared error router for the scan and unfollow loops.
@@ -29,13 +33,17 @@ export async function handleApiError(
   setToast: Dispatch<SetStateAction<ToastState>>,
 ): Promise<'halt' | 'retry'> {
   if (e instanceof CircuitOpenError) {
+    setToast({
+      show: true,
+      style: 'error',
+      text: 'Circuit breaker tripped — too many failures in the last 10 actions. Halting to avoid a soft-ban.',
+    });
     setState({
       status: 'error',
       error: { kind: 'rate_limit' },
       recoverable: false,
       previousStatus,
     });
-    setToast({ show: false });
     return 'halt';
   }
   if (!isInstagramErrorException(e)) {
@@ -50,6 +58,7 @@ export async function handleApiError(
     limiter.onRateLimit(err.retryAfter);
     setToast({
       show: true,
+      style: 'warning',
       text: `Rate limited. Backing off to ${Math.round(limiter.getCurrentDelay() / 1000)}s.`,
     });
   }
