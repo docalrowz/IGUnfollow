@@ -1,8 +1,10 @@
 import React from "react";
-import { assertUnreachable, getCurrentPageUnfollowers, getMaxPage, getUsersForDisplay, isWithoutProfilePicture } from "../utils/utils";
+import { assertUnreachable } from "../utils/utils";
+import { getCurrentPageUnfollowers, getMaxPage, getUsersForDisplay, isWithoutProfilePicture } from "../state/selectors";
 import { State } from "../model/state";
 import { UserNode } from "../model/user";
 import { WHITELISTED_RESULTS_STORAGE_KEY } from "../constants/constants";
+import { useAlert, useConfirm } from "./ui/ConfirmDialog";
 
 
 export interface SearchingProps {
@@ -26,6 +28,9 @@ export const Searching = ({
   UserCheckIcon,
   UserUncheckIcon,
 }: SearchingProps) => {
+  const askConfirm = useConfirm();
+  const askAlert = useAlert();
+
   if (state.status !== "scanning") {
     return null;
   }
@@ -37,12 +42,47 @@ export const Searching = ({
     state.searchTerm,
     state.filter,
   );
+  const pageUsers = getCurrentPageUnfollowers(usersForDisplay, state.page);
+  const scanFinished = state.percentage === 100;
   let currentLetter = "";
 
   const onNewLetter = (firstLetter: string) => {
     currentLetter = firstLetter;
     return <div className="alphabet-character">{currentLetter}</div>;
   };
+
+  const renderSkeletonRows = () => (
+    <>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div className="skeleton-row" key={`sk-${i}`} aria-hidden="true">
+          <div className="skeleton-circle" />
+          <div className="grow flex column gap-small">
+            <div className="skeleton-line" style={{ width: '38%' }} />
+            <div className="skeleton-line" style={{ width: '22%' }} />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+
+  const renderEmptyState = () => (
+    <div className="empty-state">
+      <div className="empty-state-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      </div>
+      <h3>
+        {state.currentTab === 'whitelisted' ? 'Whitelist is empty' : 'No matching accounts'}
+      </h3>
+      <p>
+        {state.currentTab === 'whitelisted'
+          ? 'Click an avatar in the Non-Whitelisted tab to protect that account from being unfollowed.'
+          : 'Try widening your filters or clearing the search bar — the current set excludes every scanned account.'}
+      </p>
+    </div>
+  );
 
   return (
     <section className="workspace-layout">
@@ -212,31 +252,31 @@ export const Searching = ({
         <button
           className="unfollow"
           onClick={() => {
-            if (!confirm("Are you sure?")) {
-              return;
-            }
-            //TODO TEMP until types are properly fixed
-            // @ts-ignore
-            setState(prevState => {
-              if (prevState.status !== "scanning") {
-                return prevState;
+            void (async () => {
+              if (state.selectedResults.length === 0) {
+                await askAlert("Must select at least a single user to unfollow.");
+                return;
               }
-              if (prevState.selectedResults.length === 0) {
-                alert("Must select at least a single user to unfollow");
-                return prevState;
+              const ok = await askConfirm({
+                title: 'Start unfollowing?',
+                message: `You are about to unfollow ${state.selectedResults.length} users. This cannot be undone.`,
+                confirmLabel: 'Unfollow',
+              });
+              if (!ok) {
+                return;
               }
-              const newState: State = {
-                ...prevState,
+              setState({
                 status: "unfollowing",
+                searchTerm: state.searchTerm,
                 percentage: 0,
+                selectedResults: state.selectedResults,
                 unfollowLog: [],
                 filter: {
                   showSucceeded: true,
                   showFailed: true,
                 },
-              };
-              return newState;
-            });
+              });
+            })();
           }}
         >
           Unfollow ({state.selectedResults.length})
@@ -277,7 +317,8 @@ export const Searching = ({
             Whitelisted
           </button>
         </nav>
-        {getCurrentPageUnfollowers(usersForDisplay, state.page).map(user => {
+        {pageUsers.length === 0 && (scanFinished ? renderEmptyState() : renderSkeletonRows())}
+        {pageUsers.map(user => {
           const firstLetter = user.username.substring(0, 1).toUpperCase();
           return (
             <>
@@ -316,6 +357,8 @@ export const Searching = ({
                       className="avatar"
                       alt={user.username}
                       src={user.profile_pic_url}
+                      loading="lazy"
+                      decoding="async"
                     />
                     <span className="avatar-icon-overlay-container">
                       {state.currentTab === "non_whitelisted" ? (

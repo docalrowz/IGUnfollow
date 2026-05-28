@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in the app is broken or behaving unexpectedly.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much as you can —
+        reports without reproduction steps usually go stale.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear, concrete description of the bug.
+      placeholder: "The scan stopped at 32% and the UI showed a blank screen."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to trigger the bug. Include console output if possible.
+      placeholder: |
+        1. Paste the bundle into Instagram's console.
+        2. Click Run scan.
+        3. Wait roughly two minutes.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: "Chrome 131 / Firefox 132 / Safari 17.4"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 14.5 / Windows 11 / Android 14"
+    validations:
+      required: true
+  - type: dropdown
+    id: account-size
+    attributes:
+      label: Rough number of accounts you follow
+      options:
+        - Under 500
+        - 500–2,000
+        - 2,000–5,000
+        - Over 5,000
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: Paste any red errors from the browser DevTools console.
+      render: text
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I understand using this tool may violate Instagram's terms.
+          required: true

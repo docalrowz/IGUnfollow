@@ -1,93 +1,126 @@
 # 📱 Instagram Unfollowers
 
+[![CI](https://github.com/davidarroyo1234/InstagramUnfollowers/actions/workflows/ci.yaml/badge.svg)](https://github.com/davidarroyo1234/InstagramUnfollowers/actions/workflows/ci.yaml)
 [![Maintenance](https://img.shields.io/maintenance/yes/2026)](https://github.com/davidarroyo1234/InstagramUnfollowers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A nifty tool that lets you see who doesn't follow you back on Instagram.  
-<u>Browser-based and requires no downloads or installations!</u>
+A browser-based tool that shows you who doesn't follow you back on Instagram and lets you bulk-unfollow them. No download, no install, no server — paste a script into the developer console on instagram.com and you're done.
 
-## ⚠️ WARNING
+**Live:** <https://igunfollow.vercel.app/>
 
-This version utilizes the Instagram API for better performance.  
+## ⚠️ Read this first
 
-## 🖥️ Desktop Usage
+Bulk-unfollowing through Instagram's private endpoints **may violate the [Instagram Terms of Use](https://help.instagram.com/581066165581870)** and **can trigger temporary or permanent account restrictions**. Instagram actively rate-limits this kind of traffic. This project tries hard to stay below their thresholds (adaptive backoff, circuit breaker, randomized jitter), but no client-side safeguard makes the action _safe_.
 
-1. Copy the code from: [InstagramUnfollowers Tool](https://davidarroyo1234.github.io/InstagramUnfollowers/)
+You accept that risk by using this tool. The maintainers are not affiliated with, endorsed by, or connected to Instagram in any way.
 
-2. Press the COPY button to copy the code.
+## 🖥️ Desktop usage
+
+1. Open [the bookmarklet page](https://davidarroyo1234.github.io/InstagramUnfollowers/) and press **COPY**.
 
     <img src="./assets/copy_code.png" alt="Copy code button" />
 
-3. Go to Instagram website and log in to your account
-
-4. Open the developer console:
-   - Windows: `Ctrl + Shift + J`
-   - Mac OS: `⌘ + ⌥ + I`
-
-5. Paste the code and you'll see this interface:
+2. Log in to Instagram in another tab.
+3. Open the developer console (Windows: `Ctrl + Shift + J`, macOS: `⌘ + ⌥ + I`).
+4. Paste the script and press Enter. The UI takes over the tab:
 
     <img src="./assets/initial.png" alt="Initial screen" />
 
-6. Click "RUN" to start scanning
-
-7. After scanning completes, you'll see the results:
+5. Click **RUN** to start scanning. After scanning, you'll see who doesn't follow back:
 
     <img src="./assets/results.png" alt="Results screen" />
 
-8. 🤍 Whitelist users by clicking their profile image
-
-9. 💾 Manage your whitelist via Settings:
-   - Export: Save your whitelist as a JSON backup file
-   - Import: Restore or merge whitelisted users from a file
-   - Clear: Remove all users from whitelist
-   
-   Your whitelist persists between sessions automatically!
+6. 🤍 Whitelist users by clicking their profile image. The whitelist persists in `localStorage`.
+7. 💾 Export / Import / Clear the whitelist from **Settings → Whitelist**:
 
     <img src="./assets/settings_whitelist.png" alt="Settings screen" />
 
-10. ✅ Select users to unfollow using the checkboxes
-
-11. ⚙️ Customize script timings via the "Settings" button:
+8. ✅ Tick the users to unfollow and press **Unfollow**.
+9. ⚙️ Adjust timings via **Settings** if you keep getting rate-limited:
 
     <img src="./assets/settings.png" alt="Settings screen" />
 
-## 📱 Mobile Usage
+If Instagram rate-limits you mid-batch, the tool stops automatically and surfaces a typed error screen. Resume an interrupted batch on the next session — the unfollow queue is persisted to IndexedDB every five actions.
 
-For Android users who want to use it on mobile:
+## 📱 Mobile usage
 
-1. Download the latest version of [Eruda Android Browser](https://github.com/liriliri/eruda-android/releases/)
-2. Open Instagram web through the Eruda browser
-3. Follow the same steps as desktop (the console will be automatically available when clicking the eruda icon)
+For Android:
 
-## ⚡ Performance Notes
+1. Install [Eruda Browser](https://github.com/liriliri/eruda-android/releases/).
+2. Open Instagram web inside Eruda.
+3. Tap the Eruda icon → console, then follow the desktop steps.
 
-- Processing time increases with the number of users to check
-- Script works on both Chromium and Firefox-based browsers
-- The script takes a few more seconds to load on mobile
-- Whitelist data is stored locally in your browser (localStorage)
+## ⚡ Performance notes
+
+- Runtime grows with the number of accounts you follow.
+- Works on Chromium- and Firefox-based browsers.
+- Mobile takes a couple of extra seconds to mount.
+- Whitelist and timings live in `localStorage`. The in-flight unfollow queue lives in IndexedDB.
 
 ## ✨ Features
 
 - 🔍 Scan and identify users who don't follow you back
-- 🤍 Whitelist system to protect specific accounts from unfollowing
-- 💾 Export/Import whitelist functionality for backup and transfer
-- ⚙️ Customizable timing settings to avoid rate limits
-- 🎨 Clean, minimalist interface inspired by Apple design
-- 📱 Fully responsive - works on desktop and mobile
-- 🔒 All data stored locally - no external servers
+- 🤍 Whitelist with export / import / merge
+- 💾 Resume an interrupted unfollow batch (IndexedDB-backed queue)
+- 🚦 Closed-loop rate limiter: backs off on Instagram's `feedback_required` / 429 responses
+- ⛔ Circuit breaker stops the loop before a soft-ban escalates to a hard one
+- 🔁 Dynamic GraphQL `query_hash` detection (no more breakage when Instagram rotates the hash)
+- ⚙️ Customizable timings to dodge rate limits
+- 🎨 Dark, minimalist UI
+- 🔒 All data stays local — no external servers
 
 ## 🛠️ Development
 
-- Node version: 16.14.0 (If using nvm, run `nvm use`)
-- After modifying `main.tsx`, run the "build" command to format, compress, and convert your code
-- Automatic re-building can be done using nodemon build-dev
+```bash
+nvm use            # Node 20 LTS (see .nvmrc)
+npm install
+npm test           # Vitest run, ~70 unit tests across core/ + state/
+npm run build-dev  # webpack-dev-server on http://localhost:8080
+npm run build      # production bundle + inline into public/index.html
+npm run typecheck  # tsc --noEmit
+npm run lint       # eslint src/**/*.{ts,tsx}
+```
 
-## ⚖️ Legal & License
+## 🚀 Deploy to Vercel
 
-**Disclaimer:** This tool is not affiliated, associated, authorized, endorsed by, or officially connected with Instagram.
+This repo ships with a [`vercel.json`](vercel.json) so Vercel auto-detects the build settings.
 
-⚠️ Use at your own risk!
+```text
+Build command   : npm run build
+Output directory: public
+Install command : npm ci
+Framework       : none (static)
+Node            : 20.x (set via package.json engines)
+```
 
-📜 Licensed under the [MIT License](LICENSE)
-- ✅ Free to use, copy, and modify
-- 🤝 Open source and community-friendly
-- 📋 See [LICENSE](LICENSE) file for full terms
+The static landing at `/` hosts the copy-paste snippet; `/preview.html` mounts the app locally with mock users for design QA. Security headers (CSP, HSTS, X-Frame-Options, Permissions-Policy) are configured in `vercel.json`.
+
+For the dev preview UI without hitting Instagram's API, open
+<http://localhost:8080/preview.html?preview=scanning>. The app detects
+`localhost` and substitutes mock users for every fetch.
+
+Architecture in short:
+
+- `src/core/` — pure, typed Instagram API layer (`fetchFollowingPage`, `unfollowUser`), adaptive rate limiter, circuit breaker, IndexedDB queue, dynamic query-hash detector.
+- `src/hooks/` — `useScanner` + `useUnfollower` drive the long-running loops; share an `api-error-handler` that routes typed errors into the state machine.
+- `src/state/` — pure selectors (`getUsersForDisplay`, etc.) and the discriminated `State` union (`initial | scanning | unfollowing | error`).
+- `src/components/` — Preact UI. `components/ui/ConfirmDialog.tsx` exposes `useConfirm` + `useAlert` (replaces the native blocking dialogs).
+- `src/main.tsx` — entry, mounts `<DialogProvider><App /></DialogProvider>` and wires the hooks to the state.
+
+## 🤝 Contributing
+
+PRs welcome. Before opening one:
+
+1. **Branch off `master`** with a `feat/`, `fix/`, `refactor/`, or `docs/` prefix.
+2. **Conventional Commits**: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
+3. **Tests stay green**: `npm test` must pass. Add tests for new logic in `src/core/` or `src/state/`.
+4. **Builds stay green**: `npm run webpack-build` (CI gates on this).
+5. **No new runtime deps without a reason.** Bundle size matters — this app ships as a string pasted into a browser console.
+
+Bug reports and feature ideas go in [Issues](https://github.com/davidarroyo1234/InstagramUnfollowers/issues).
+
+## ⚖️ Disclaimer & License
+
+This tool is **not affiliated, associated, authorized, endorsed by, or officially connected with Instagram**. Using it may violate Instagram's Terms of Use. Use at your own risk.
+
+Licensed under the [MIT License](LICENSE).

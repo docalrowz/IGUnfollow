@@ -16,8 +16,13 @@ module.exports = {
                     'style-loader',
                     // Translates CSS into CommonJS
                     'css-loader',
-                    // Compiles Sass to CSS
-                    'sass-loader',
+                    // Compiles Sass to CSS using Dart Sass' modern compiler API.
+                    {
+                        loader: 'sass-loader',
+                        options: {
+                            api: 'modern-compiler',
+                        },
+                    },
                 ],
             },
         ],

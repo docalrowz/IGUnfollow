@@ -1,30 +1,38 @@
-import React, { ChangeEvent, useEffect, useState } from "react";
-import { render } from "react-dom";
-import "./styles.scss";
+import React, { ChangeEvent, useEffect, useState } from 'react';
+// `react-dom` is aliased to `preact/compat` in webpack.config.js + tsconfig.json,
+// so the `react/no-deprecated` warning about React 18's createRoot does not apply.
+// eslint-disable-next-line react/no-deprecated
+import { render } from 'react-dom';
+import './styles.scss';
 
-import { Typename, User, UserNode } from "./model/user";
-import { Toast } from "./components/Toast";
-import { UserCheckIcon } from "./components/icons/UserCheckIcon";
-import { UserUncheckIcon } from "./components/icons/UserUncheckIcon";
+import { Typename, UserNode } from './model/user';
+import { Toast } from './components/Toast';
+import { UserCheckIcon } from './components/icons/UserCheckIcon';
+import { UserUncheckIcon } from './components/icons/UserUncheckIcon';
 import { DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
   DEFAULT_TIME_BETWEEN_UNFOLLOWS,
   DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
-  DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS, INSTAGRAM_HOSTNAME } from "./constants/constants";
-import {
-  assertUnreachable,
-  getCookie,
-  getCurrentPageUnfollowers,
-  getUsersForDisplay, sleep, unfollowUserUrlGenerator, urlGenerator,
-} from "./utils/utils";
-import { NotSearching } from "./components/NotSearching";
-import { State } from "./model/state";
-import { Searching } from "./components/Searching";
-import { Toolbar } from "./components/Toolbar";
-import { Unfollowing } from "./components/Unfollowing";
-import { Timings } from "./model/timings";
-import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from "./utils/whitelist-manager";
+  DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS, INSTAGRAM_HOSTNAME } from './constants/constants';
+import { assertUnreachable } from './utils/utils';
+import { getCurrentPageUnfollowers, getUsersForDisplay } from './state/selectors';
+import { NotSearching } from './components/NotSearching';
+import { State } from './model/state';
+import { Searching } from './components/Searching';
+import { Toolbar } from './components/Toolbar';
+import { Unfollowing } from './components/Unfollowing';
+import { Timings } from './model/timings';
+import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from './utils/whitelist-manager';
+import { DialogProvider, useConfirm } from './components/ui/ConfirmDialog';
+import { TranslationProvider } from './i18n/TranslationProvider';
+import { ThemeProvider } from './theme/ThemeProvider';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { InstagramError } from './core/error-types';
+import { errorDetail, errorTitle } from './state/error-messages';
+import { useScanner } from './hooks/useScanner';
+import { useUnfollower } from './hooks/useUnfollower';
+import { ToastState } from './hooks/api-error-handler';
 
-const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const LOCAL_PREVIEW_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const isLocalPreview = LOCAL_PREVIEW_HOSTS.has(location.hostname);
 
 const _avatarUrl = (seed: string): string =>
@@ -61,101 +69,126 @@ const _createPreviewUser = (
 });
 
 const _getPreviewUsers = (): readonly UserNode[] => [
-  _createPreviewUser("1", "alina.frames", "Alina Moreno", { isVerified: true }),
-  _createPreviewUser("2", "brassandbone", "Theo Walsh", { isPrivate: true }),
-  _createPreviewUser("3", "citrus.archive", "Mara Kim", { followsViewer: true }),
-  _createPreviewUser("4", "dawnledger", "Jon Bell", { isPrivate: true }),
-  _createPreviewUser("5", "elias.market", "Elias Noor", { isVerified: true }),
-  _createPreviewUser("6", "fieldnotes.studio", "Nadia Reyes"),
-  _createPreviewUser("7", "glint.supply", "Remy Park", { followsViewer: true }),
-  _createPreviewUser("8", "harbor.sequence", "Ivy Chen", { isPrivate: true }),
-  _createPreviewUser("9", "inkline.daily", "Sofia Grant"),
-  _createPreviewUser("10", "juniper.signal", "Cal Reed", { isVerified: true }),
-  _createPreviewUser("11", "keystone.labs", "Mina Torres"),
-  _createPreviewUser("12", "lowlight.club", "Owen Voss", { isPrivate: true }),
+  _createPreviewUser('1', 'alina.frames', 'Alina Moreno', { isVerified: true }),
+  _createPreviewUser('2', 'brassandbone', 'Theo Walsh', { isPrivate: true }),
+  _createPreviewUser('3', 'citrus.archive', 'Mara Kim', { followsViewer: true }),
+  _createPreviewUser('4', 'dawnledger', 'Jon Bell', { isPrivate: true }),
+  _createPreviewUser('5', 'elias.market', 'Elias Noor', { isVerified: true }),
+  _createPreviewUser('6', 'fieldnotes.studio', 'Nadia Reyes'),
+  _createPreviewUser('7', 'glint.supply', 'Remy Park', { followsViewer: true }),
+  _createPreviewUser('8', 'harbor.sequence', 'Ivy Chen', { isPrivate: true }),
+  _createPreviewUser('9', 'inkline.daily', 'Sofia Grant'),
+  _createPreviewUser('10', 'juniper.signal', 'Cal Reed', { isVerified: true }),
+  _createPreviewUser('11', 'keystone.labs', 'Mina Torres'),
+  _createPreviewUser('12', 'lowlight.club', 'Owen Voss', { isPrivate: true }),
 ];
 
-// pause
-let scanningPaused = false;
+interface ErrorScreenProps {
+  readonly error: InstagramError;
+  readonly recoverable: boolean;
+  readonly onReset: () => void;
+}
 
-function pauseScan() {
-  scanningPaused = !scanningPaused;
+function ErrorScreen({ error, recoverable, onReset }: ErrorScreenProps) {
+  return (
+    <section className='error-screen' role='alert'>
+      <h2>{errorTitle(error)}</h2>
+      <p>{errorDetail(error)}</p>
+      {recoverable
+        ? <p>You can safely try again in a few moments.</p>
+        : <p>Reload the page and verify your account on Instagram before retrying.</p>}
+      <button type='button' onClick={onReset}>Back to start</button>
+    </section>
+  );
 }
 
 
 function App() {
-  const [state, setState] = useState<State>({
-    ...(
-      isLocalPreview && new URLSearchParams(location.search).get("preview") === "scanning"
-        ? {
-          status: "scanning",
-          page: 1,
-          searchTerm: "",
-          currentTab: "non_whitelisted",
-          percentage: 100,
-          results: _getPreviewUsers(),
-          selectedResults: _getPreviewUsers().slice(0, 3),
-          whitelistedResults: _getPreviewUsers().slice(10, 12),
-          filter: {
-            showNonFollowers: true,
-            showFollowers: false,
-            showVerified: true,
-            showPrivate: true,
-            showWithOutProfilePicture: true,
-          },
-        } as State
-        : { status: "initial" as const }
-    ),
+  const askConfirm = useConfirm();
+
+  const [whitelist, setWhitelist] = useState<readonly UserNode[]>(() => loadWhitelist());
+
+  const [state, setState] = useState<State>(() => (
+    isLocalPreview && new URLSearchParams(location.search).get('preview') === 'scanning'
+      ? {
+        status: 'scanning',
+        page: 1,
+        searchTerm: '',
+        currentTab: 'non_whitelisted',
+        percentage: 100,
+        results: _getPreviewUsers(),
+        selectedResults: _getPreviewUsers().slice(0, 3),
+        whitelistedResults: _getPreviewUsers().slice(10, 12),
+        paused: false,
+        filter: {
+          showNonFollowers: true,
+          showFollowers: false,
+          showVerified: true,
+          showPrivate: true,
+          showWithOutProfilePicture: true,
+        },
+      }
+      : { status: 'initial' }
+  ));
+
+  const [toast, setToast] = useState<ToastState>({ show: false });
+
+  const [timings, setTimings] = useState<Timings>(() => loadTimings() ?? {
+    timeBetweenSearchCycles: DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
+    timeToWaitAfterFiveSearchCycles: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
+    timeBetweenUnfollows: DEFAULT_TIME_BETWEEN_UNFOLLOWS,
+    timeToWaitAfterFiveUnfollows: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS,
   });
 
-  const [toast, setToast] = useState<{ readonly show: false } | { readonly show: true; readonly text: string }>({
-    show: false,
-  });
-
-  const [timings, setTimings] = useState<Timings>(() => {
-    const storedTimings = loadTimings();
-    return storedTimings ?? {
-      timeBetweenSearchCycles: DEFAULT_TIME_BETWEEN_SEARCH_CYCLES,
-      timeToWaitAfterFiveSearchCycles: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_SEARCH_CYCLES,
-      timeBetweenUnfollows: DEFAULT_TIME_BETWEEN_UNFOLLOWS,
-      timeToWaitAfterFiveUnfollows: DEFAULT_TIME_TO_WAIT_AFTER_FIVE_UNFOLLOWS,
-    };
-  });
-
-  // Save timings whenever they change
   useEffect(() => {
     saveTimings(timings);
   }, [timings]);
 
+  useScanner({ state, setState, setToast, timings, isLocalPreview });
+  useUnfollower({
+    state,
+    setState,
+    setToast,
+    timings,
+    isLocalPreview,
+    confirm: message => askConfirm({
+      title: 'Resume previous batch?',
+      message,
+      confirmLabel: 'Resume',
+      cancelLabel: 'Discard',
+    }),
+  });
 
   let isActiveProcess: boolean;
   switch (state.status) {
-    case "initial":
+    case 'initial':
+    case 'error':
       isActiveProcess = false;
       break;
-    case "scanning":
-    case "unfollowing":
+    case 'scanning':
+    case 'unfollowing':
       isActiveProcess = state.percentage < 100;
       break;
     default:
       assertUnreachable(state);
   }
 
-  const onScan = async () => {
-    if (state.status !== "initial") {
+  const onScan = () => {
+    if (state.status !== 'initial') {
       return;
     }
     if (isLocalPreview) {
       const previewUsers = _getPreviewUsers();
       setState({
-        status: "scanning",
+        status: 'scanning',
         page: 1,
-        searchTerm: "",
-        currentTab: "non_whitelisted",
+        searchTerm: '',
+        currentTab: 'non_whitelisted',
         percentage: 100,
         results: previewUsers,
         selectedResults: previewUsers.slice(0, 3),
         whitelistedResults: previewUsers.slice(10, 12),
+        paused: false,
         filter: {
           showNonFollowers: true,
           showFollowers: false,
@@ -166,16 +199,16 @@ function App() {
       });
       return;
     }
-    const whitelistedResults = loadWhitelist();
     setState({
-      status: "scanning",
+      status: 'scanning',
       page: 1,
-      searchTerm: "",
-      currentTab: "non_whitelisted",
+      searchTerm: '',
+      currentTab: 'non_whitelisted',
       percentage: 0,
       results: [],
       selectedResults: [],
-      whitelistedResults,
+      whitelistedResults: whitelist,
+      paused: false,
       filter: {
         showNonFollowers: true,
         showFollowers: false,
@@ -186,33 +219,38 @@ function App() {
     });
   };
 
-  const handleScanFilter = (e: ChangeEvent<HTMLInputElement>) => {
-    if (state.status !== "scanning") {
+  const handleScanFilter = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (state.status !== 'scanning') {
       return;
     }
+    const fieldName = e.currentTarget.name;
+    const checked = e.currentTarget.checked;
     if (state.selectedResults.length > 0) {
-      if (!confirm("Changing filter options will clear selected users")) {
-        // Force re-render. Bit of a hack but had an issue where the checkbox state was still
-        // changing in the UI even even when not confirming. So updating the state fixes this
-        // by synchronizing the checkboxes with the filter statuses in the state.
+      const ok = await askConfirm({
+        title: 'Change filter?',
+        message: 'Changing filter options will clear selected users.',
+        confirmLabel: 'Change filter',
+      });
+      if (!ok) {
+        // Force re-render so the checkbox UI snaps back to the underlying filter state.
         setState({ ...state });
         return;
       }
     }
-    setState({
-      ...state,
-      // Make sure to clear selected results when changing filter options. This is to avoid having
-      // users selected in the unfollow queue but not visible in the UI, which would be confusing.
-      selectedResults: [],
-      filter: {
-        ...state.filter,
-        [e.currentTarget.name]: e.currentTarget.checked,
-      },
+    setState(prev => {
+      if (prev.status !== 'scanning') {
+        return prev;
+      }
+      return {
+        ...prev,
+        selectedResults: [],
+        filter: { ...prev.filter, [fieldName]: checked },
+      };
     });
   };
 
   const handleUnfollowFilter = (e: ChangeEvent<HTMLInputElement>) => {
-    if (state.status !== "unfollowing") {
+    if (state.status !== 'unfollowing') {
       return;
     }
     setState({
@@ -225,7 +263,7 @@ function App() {
   };
 
   const toggleUser = (newStatus: boolean, user: UserNode) => {
-    if (state.status !== "scanning") {
+    if (state.status !== 'scanning') {
       return;
     }
     if (newStatus) {
@@ -242,7 +280,7 @@ function App() {
   };
 
   const toggleAllUsers = (e: ChangeEvent<HTMLInputElement>) => {
-    if (state.status !== "scanning") {
+    if (state.status !== 'scanning') {
       return;
     }
     if (e.currentTarget.checked) {
@@ -264,9 +302,8 @@ function App() {
     }
   };
 
-  // it will work the same as toggleAllUsers, but it will select everyone on the current page.
-  const toggleCurrentePageUsers = (e: ChangeEvent<HTMLInputElement>) => {
-    if (state.status !== "scanning") {
+  const toggleCurrentPageUsers = (e: ChangeEvent<HTMLInputElement>) => {
+    if (state.status !== 'scanning') {
       return;
     }
     if (e.currentTarget.checked) {
@@ -293,7 +330,8 @@ function App() {
 
   const onWhitelistUpdate = (updatedWhitelist: readonly UserNode[]) => {
     saveWhitelist(updatedWhitelist);
-    if (state.status === "scanning") {
+    setWhitelist(updatedWhitelist);
+    if (state.status === 'scanning') {
       setState({
         ...state,
         whitelistedResults: updatedWhitelist,
@@ -301,214 +339,57 @@ function App() {
     }
   };
 
+  const togglePause = () => {
+    setState(prev => prev.status === 'scanning' ? { ...prev, paused: !prev.paused } : prev);
+  };
+
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Prompt user if he tries to leave while in the middle of a process (searching / unfollowing / etc..)
-      // This is especially good for avoiding accidental tab closing which would result in a frustrating experience.
       if (!isActiveProcess) {
         return;
       }
-
-      // `e` Might be undefined in older browsers, so silence linter for this one.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      e = e || window.event;
-
-      // `e` Might be undefined in older browsers, so silence linter for this one.
-      // For IE and Firefox prior to version 4
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (e) {
-        e.returnValue = "Changes you made may not be saved.";
-      }
-
-      // For Safari
-      return "Changes you made may not be saved.";
+      e.returnValue = 'Changes you made may not be saved.';
+      return 'Changes you made may not be saved.';
     };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isActiveProcess, state]);
-
-  useEffect(() => {
-    const scan = async () => {
-      if (state.status !== "scanning" || isLocalPreview) {
-        return;
-      }
-      const results = [...state.results];
-      let scrollCycle = 0;
-      let url = urlGenerator();
-      let hasNext = true;
-      let currentFollowedUsersCount = 0;
-      let totalFollowedUsersCount = -1;
-
-      while (hasNext) {
-        let receivedData: User;
-        try {
-          receivedData = (await fetch(url).then(res => res.json())).data.user.edge_follow;
-        } catch (e) {
-          console.error(e);
-          continue;
-        }
-
-        if (totalFollowedUsersCount === -1) {
-          totalFollowedUsersCount = receivedData.count;
-        }
-
-        hasNext = receivedData.page_info.has_next_page;
-        url = urlGenerator(receivedData.page_info.end_cursor);
-        currentFollowedUsersCount += receivedData.edges.length;
-        receivedData.edges.forEach(x => results.push(x.node));
-
-        setState(prevState => {
-          if (prevState.status !== "scanning") {
-            return prevState;
-          }
-          const newState: State = {
-            ...prevState,
-            // Fix: Changed from Math.floor to Math.round to ensure progress reaches 100%
-            // Math.floor would leave progress at 99% when near completion
-            percentage: Math.round((currentFollowedUsersCount / totalFollowedUsersCount) * 100),
-            results,
-          };
-          return newState;
-        });
-
-        // Pause scanning if user requested so.
-        while (scanningPaused) {
-          await sleep(1000);
-          console.info("Scan paused");
-        }
-
-        // Human-like behavior: Micro-pause between fetching chunks
-        const microPause = Math.floor(Math.random() * 1500) + 500; // 500ms - 2000ms
-        await sleep(microPause);
-
-        // Standard delay between cycles
-        await sleep(Math.floor(Math.random() * (timings.timeBetweenSearchCycles - timings.timeBetweenSearchCycles * 0.7)) + timings.timeBetweenSearchCycles);
-        
-        scrollCycle++;
-        if (scrollCycle > 6) {
-          scrollCycle = 0;
-          // Variable long sleep to avoid patterns
-          const longSleepVar = Math.max(
-            0,
-            timings.timeToWaitAfterFiveSearchCycles + (Math.random() * 10000 - 5000), // +/- 5 seconds
-          );
-          setToast({ show: true, text: `Sleeping ${Math.round(longSleepVar / 1000)} seconds to prevent getting temp blocked` });
-          await sleep(longSleepVar);
-        }
-        setToast({ show: false });
-      }
-      setToast({ show: true, text: "Scanning completed!" });
-    };
-    scan();
-    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status]);
-
-  useEffect(() => {
-    const unfollow = async () => {
-      if (state.status !== "unfollowing" || isLocalPreview) {
-        return;
-      }
-
-      const csrftoken = getCookie("csrftoken");
-      if (csrftoken === null) {
-        throw new Error("csrftoken cookie is null");
-      }
-
-      let counter = 0;
-      for (const user of state.selectedResults) {
-        counter += 1;
-        // Fix: Changed from Math.floor to Math.round to ensure progress reaches 100%
-        // Math.floor would leave progress at 99% when near completion
-        const percentage = Math.round((counter / state.selectedResults.length) * 100);
-        try {
-          await fetch(unfollowUserUrlGenerator(user.id), {
-            headers: {
-              "content-type": "application/x-www-form-urlencoded",
-              "x-csrftoken": csrftoken,
-            },
-            method: "POST",
-            mode: "cors",
-            credentials: "include",
-          });
-          setState(prevState => {
-            if (prevState.status !== "unfollowing") {
-              return prevState;
-            }
-            return {
-              ...prevState,
-              percentage,
-              unfollowLog: [
-                ...prevState.unfollowLog,
-                {
-                  user,
-                  unfollowedSuccessfully: true,
-                },
-              ],
-            };
-          });
-        } catch (e) {
-          console.error(e);
-          setState(prevState => {
-            if (prevState.status !== "unfollowing") {
-              return prevState;
-            }
-            return {
-              ...prevState,
-              percentage,
-              unfollowLog: [
-                ...prevState.unfollowLog,
-                {
-                  user,
-                  unfollowedSuccessfully: false,
-                },
-              ],
-            };
-          });
-        }
-        // If unfollowing the last user in the list, no reason to wait.
-        if (user === state.selectedResults[state.selectedResults.length - 1]) {
-          break;
-        }
-        await sleep(Math.floor(Math.random() * (timings.timeBetweenUnfollows * 1.2 - timings.timeBetweenUnfollows)) + timings.timeBetweenUnfollows);
-
-        if (counter % 5 === 0) {
-          setToast({ show: true, text: `Sleeping ${timings.timeToWaitAfterFiveUnfollows / 60000 } minutes to prevent getting temp blocked` });
-          await sleep(timings.timeToWaitAfterFiveUnfollows);
-        }
-        setToast({ show: false });
-      }
-    };
-    unfollow();
-    // Dependency array not entirely legit, but works this way. TODO: Find a way to fix.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status]);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isActiveProcess]);
 
   let markup: React.JSX.Element;
   switch (state.status) {
-    case "initial":
-      markup = <NotSearching onScan={onScan}></NotSearching>;
+    case 'initial':
+      markup = <NotSearching onScan={onScan} />;
       break;
 
-    case "scanning": {
+    case 'scanning': {
       markup = <Searching
         state={state}
         handleScanFilter={handleScanFilter}
         toggleUser={toggleUser}
-        pauseScan={pauseScan}
+        pauseScan={togglePause}
         setState={setState}
-        scanningPaused={scanningPaused}
+        scanningPaused={state.paused}
         UserCheckIcon={UserCheckIcon}
         UserUncheckIcon={UserUncheckIcon}
-      ></Searching>;
+       />;
       break;
     }
 
-    case "unfollowing":
+    case 'unfollowing':
       markup = <Unfollowing
         state={state}
         handleUnfollowFilter={handleUnfollowFilter}
-      ></Unfollowing>;
+       />;
+      break;
+
+    case 'error':
+      markup = (
+        <ErrorScreen
+          error={state.error}
+          recoverable={state.recoverable}
+          onReset={() => setState({ status: 'initial' })}
+        />
+      );
       break;
 
     default:
@@ -516,19 +397,19 @@ function App() {
   }
 
   return (
-    <main id="main" role="main" className="iu">
-      <section className="overlay">
+    <main id='main' role='main' className='iu'>
+      <section className='overlay'>
         <Toolbar
           state={state}
           setState={setState}
           isActiveProcess={isActiveProcess}
           toggleAllUsers={toggleAllUsers}
-          toggleCurrentePageUsers={toggleCurrentePageUsers}
+          toggleCurrentPageUsers={toggleCurrentPageUsers}
           setTimings={setTimings}
           currentTimings={timings}
-          whitelistedUsers={state.status === "scanning" ? state.whitelistedResults : loadWhitelist()}
+          whitelistedUsers={whitelist}
           onWhitelistUpdate={onWhitelistUpdate}
-        ></Toolbar>
+         />
 
         {markup}
 
@@ -539,9 +420,60 @@ function App() {
 }
 
 if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
-  alert("Can be used only on Instagram routes");
+  // Native alert() pre-render is blocking + jarring. Show a styled
+  // overlay instead. No React: DialogProvider would not yet be mounted.
+  renderHostnameError();
 } else {
-  document.title = "InstagramUnfollowers";
-  document.body.innerHTML = "";
-  render(<App />, document.body);
+  document.title = 'InstagramUnfollowers';
+  // Mount inside our own root div instead of stomping on document.body.
+  // Instagram occasionally re-injects body content; isolating our tree
+  // means our React state survives that.
+  const existing = document.getElementById('iu-root');
+  if (existing !== null) {
+    existing.remove();
+  }
+  document.body.innerHTML = '';
+  const root = document.createElement('div');
+  root.id = 'iu-root';
+  document.body.appendChild(root);
+  render(
+    <ErrorBoundary>
+      <ThemeProvider>
+        <TranslationProvider>
+          <DialogProvider>
+            <App />
+          </DialogProvider>
+        </TranslationProvider>
+      </ThemeProvider>
+    </ErrorBoundary>,
+    root,
+  );
+}
+
+function renderHostnameError() {
+  const overlay = document.createElement('div');
+  overlay.setAttribute('role', 'alert');
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:2147483647',
+    'background:rgba(0,0,0,0.92)', 'color:#efefef',
+    'display:flex', 'flex-direction:column', 'align-items:center',
+    'justify-content:center', 'padding:32px', 'gap:16px',
+    'font-family:system-ui,sans-serif', 'font-size:15px',
+  ].join(';');
+  overlay.innerHTML = [
+    '<h2 style="margin:0;font-size:22px;">InstagramUnfollowers</h2>',
+    '<p style="max-width:520px;text-align:center;margin:0;line-height:1.5;color:#a3a3a3;">',
+    'This script can only run on <strong>www.instagram.com</strong>.',
+    ' Open Instagram in another tab and paste the script in the developer console there.',
+    '</p>',
+  ].join('');
+  const close = document.createElement('button');
+  close.textContent = 'Dismiss';
+  close.style.cssText = [
+    'padding:10px 20px', 'border-radius:8px', 'border:1px solid rgba(255,255,255,0.1)',
+    'background:#2563eb', 'color:white', 'cursor:pointer', 'font-size:14px',
+  ].join(';');
+  close.addEventListener('click', () => overlay.remove());
+  overlay.appendChild(close);
+  document.body.appendChild(overlay);
 }

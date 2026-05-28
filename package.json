@@ -1,10 +1,20 @@
 {
+  "name": "instagram-unfollowers",
+  "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "webpack-build": "webpack --mode production",
     "build-dev": "npm run build && webpack serve --mode development",
     "build-prod": "npm run webpack-build && webpack serve --mode production",
     "update-readme": "node scripts/update-index.js public/index.html dist/dist.js",
-    "build": "npm run webpack-build && npm run update-readme"
+    "build": "npm run webpack-build && npm run update-readme",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "analyze": "webpack --mode production --profile --json > dist/stats.json && echo Upload dist/stats.json to https://chrisbateman.github.io/webpack-visualizer/ or run: npx webpack-bundle-analyzer dist/stats.json"
   },
   "babel": {
     "plugins": [
@@ -21,16 +31,20 @@
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^4.6.2",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^14.12.3",
     "sass": "^1.83.4",
-    "sass-loader": "^13.3.3",
+    "sass-loader": "^14.2.1",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.2",
     "typescript": "^5.7.3",
+    "vitest": "^1.6.1",
     "webpack": "^5.97.1",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.2.0"
   },
   "dependencies": {
+    "idb": "^8.0.3",
     "preact": "^10.25.4"
   }
 }

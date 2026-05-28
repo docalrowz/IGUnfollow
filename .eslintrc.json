@@ -12,6 +12,11 @@
         "sourceType": "module"
     },
     "plugins": ["react", "@typescript-eslint", "react-hooks"],
+    "settings": {
+        "react": {
+            "version": "18.0.0"
+        }
+    },
     "rules": {
         "@typescript-eslint/array-type": [
             "error",
@@ -53,13 +58,21 @@
         "@typescript-eslint/no-unnecessary-type-arguments": "error",
         "@typescript-eslint/no-unnecessary-type-assertion": "error",
         "@typescript-eslint/no-unused-expressions": "error",
-        "@typescript-eslint/no-use-before-define": "error",
+        "@typescript-eslint/no-use-before-define": [
+            "error",
+            { "functions": false, "classes": false }
+        ],
         "@typescript-eslint/no-unused-vars": [
             "error",
             {
                 "varsIgnorePattern": "^_",
                 "argsIgnorePattern": "^_"
             }
+        ],
+        "@typescript-eslint/no-floating-promises": "error",
+        "@typescript-eslint/no-misused-promises": [
+            "error",
+            { "checksVoidReturn": false }
         ],
         "@typescript-eslint/no-var-requires": "error",
         "@typescript-eslint/non-nullable-type-assertion-style": "error",

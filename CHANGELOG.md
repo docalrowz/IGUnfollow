@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - Unreleased
+
+Major internal refactor. No user-visible behavior change beyond stricter
+safety: the tool now stops itself before Instagram does, and resumes a
+batch you interrupted by closing the tab.
+
+### Added
+- **Typed Instagram API layer (`src/core/`).** `fetchFollowingPage` and `unfollowUser` map HTTP responses onto a discriminated `InstagramError` union (`rate_limit`, `checkpoint`, `csrf_expired`, `network`, `unknown`).
+- **Adaptive rate limiter.** Closed-loop backoff that reacts to `feedback_required` and 429 responses with exponential delay (cap 5 min) and gradual recovery after 10 consecutive successes.
+- **Circuit breaker.** Three critical errors in a 10-action sliding window halt the loop so a soft-ban does not escalate.
+- **Dynamic GraphQL `query_hash` detection.** Reads the current hash out of `PerformanceObserver` resource entries; falls back to the historical hardcoded hash. No more silent breakage when Instagram rotates the hash.
+- **IndexedDB-backed unfollow queue.** Saves a snapshot every 5 actions and offers to resume on the next session.
+- **Preact-native dialogs.** `useConfirm` + `useAlert` hooks replace `window.confirm` / `window.alert`. The async dialogs do not freeze the in-flight scan/unfollow loops the way the native ones did.
+- **Typed `error` state variant** with a kind-specific error screen and a Back-to-start recover button.
+- **Vitest test suite** with `npm test`. 71 unit tests across `src/core/` and `src/state/`.
+- **GitHub Actions CI** running tests + build on every PR. `master` push additionally deploys to GitHub Pages.
+
+### Changed
+- **Architecture.** `main.tsx` shrank from ~660 to ~430 lines. Scan and unfollow loops live in `src/hooks/useScanner.ts` and `src/hooks/useUnfollower.ts`. Pure selectors moved to `src/state/selectors.ts`. State machine extended with the `error` variant.
+- **`scanningPaused`** moved off the module-level `let` and into `ScanningState.paused`.
+- **CSRF token** is now re-read from the cookie jar on every `unfollowUser` call. The previous code read it once at the top of the batch; a token rotation mid-batch silently broke every subsequent unfollow.
+- **Node version pinned to 20 LTS** (was 16.14.0, EOL). Required by Vitest 1.x.
+
+### Removed
+- Dead `urlGenerator` / `unfollowUserUrlGenerator` helpers (superseded by `core/instagram-api.ts`).
+- Hidden `confirm()` / `alert()` calls inside pure helpers (`clearWhitelist`, `exportWhitelist`, `copyListToClipboard`). These helpers are now genuinely pure; callers handle the prompt.
+
+### Fixed
+- `public/preview.html` script path so `npm run build-dev` actually mounts the app at `http://localhost:8080/preview.html?preview=scanning`.
+
 ## [1.2.0] - 2026-04-04
 
 ### Added

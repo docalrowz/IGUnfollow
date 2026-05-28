@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests work best when framed as a problem first. Tell
+        us what you can't do today, then we can argue about how to fix
+        it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      placeholder: |
+        Right now I can't tell which of my whitelisted accounts I
+        haven't actually interacted with recently. So I end up keeping
+        dormant accounts on the protected list.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Optional. Sketch the change you have in mind.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Optional. Other ways to solve the same problem.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Rough scope
+      options:
+        - Pure UI change
+        - Adds new state / persistence
+        - Touches the Instagram API layer
+        - Adds an external dependency
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I understand the project keeps the bundle small and avoids
+            third-party dependencies whenever possible.
+          required: true

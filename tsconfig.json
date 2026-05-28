@@ -11,6 +11,7 @@
         "forceConsistentCasingInFileNames": true,
         "removeComments": false,
         "esModuleInterop": true,
+        "skipLibCheck": true,
         "sourceMap": false,
         "baseUrl": "src/",
         "target": "es5",
