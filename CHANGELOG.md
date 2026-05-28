@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - Unreleased
+
+Fork polish + post-fork hardening pass.
+
+### Added
+- Vercel deploy track (replacing GitHub Pages hosting on this fork).
+- French + English i18n (more locales planned).
+- Light/dark theme toggle with system-preference detection (`src/theme/`).
+
+### Changed
+- **`State` discriminated union split per status** (`scanning-state.ts`, `unfollowing-state.ts`, `error-state.ts`). `state.ts` is now a thin union + re-export. Resolves long-standing TODO.
+- **`ReactDOM.render` migrated to `createRoot`** via `preact/compat/client`; webpack + tsconfig aliases extended to match.
+- **`instagram-api.readEdgeFollow`** now structurally validates `count` / `page_info` / `edges` instead of laundering with `as unknown as EdgeFollow`.
+- **CI workflow** (`ci.yaml`) runs `lint → typecheck → npm audit → test → webpack-build` on every push/PR. Production deploy job removed (Pages disabled; hosting moved to Vercel).
+
+### Fixed
+- 296 pre-existing ESLint violations (quotes, whitespace, arrow-parens, jsx-quotes) across components.
+- 4 dead `no-unnecessary-condition` guards in `src/i18n/index.ts` and `src/theme/theme.ts`.
+
+### Removed
+- Stray build artifacts and screenshots at repo root (`dist/`, `.playwright-mcp/`, root-level PNGs).
+- Pages deploy job + unused `pages:write` / `id-token:write` permissions in `ci.yaml`.
+
 ## [1.3.0] - Unreleased
 
 Major internal refactor. No user-visible behavior change beyond stricter
