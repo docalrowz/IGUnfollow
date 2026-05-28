@@ -3,8 +3,11 @@
 [![CI](https://github.com/davidarroyo1234/InstagramUnfollowers/actions/workflows/ci.yaml/badge.svg)](https://github.com/davidarroyo1234/InstagramUnfollowers/actions/workflows/ci.yaml)
 [![Maintenance](https://img.shields.io/maintenance/yes/2026)](https://github.com/davidarroyo1234/InstagramUnfollowers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdocalrowz%2FIGUnfollowers)
 
 A browser-based tool that shows you who doesn't follow you back on Instagram and lets you bulk-unfollow them. No download, no install, no server — paste a script into the developer console on instagram.com and you're done.
+
+**Live:** <https://igunfollowers.vercel.app/>
 
 ## ⚠️ Read this first
 
@@ -75,7 +78,23 @@ npm install
 npm test           # Vitest run, ~70 unit tests across core/ + state/
 npm run build-dev  # webpack-dev-server on http://localhost:8080
 npm run build      # production bundle + inline into public/index.html
+npm run typecheck  # tsc --noEmit
+npm run lint       # eslint src/**/*.{ts,tsx}
 ```
+
+## 🚀 Deploy to Vercel
+
+This repo ships with a [`vercel.json`](vercel.json) so Vercel auto-detects the build settings.
+
+```text
+Build command   : npm run build
+Output directory: public
+Install command : npm ci
+Framework       : none (static)
+Node            : 20.x (set via package.json engines)
+```
+
+The static landing at `/` hosts the copy-paste snippet; `/preview.html` mounts the app locally with mock users for design QA. Security headers (CSP, HSTS, X-Frame-Options, Permissions-Policy) are configured in `vercel.json`.
 
 For the dev preview UI without hitting Instagram's API, open
 <http://localhost:8080/preview.html?preview=scanning>. The app detects
