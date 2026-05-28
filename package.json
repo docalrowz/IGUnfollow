@@ -1,4 +1,9 @@
 {
+  "name": "instagram-unfollowers",
+  "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "webpack-build": "webpack --mode production",
     "build-dev": "npm run build && webpack serve --mode development",

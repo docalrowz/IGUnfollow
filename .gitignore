@@ -7,4 +7,6 @@ bun.lockb
 .playwright-mcp/
 /*.png
 CLAUDE.md
-
+.claude/
+skills-lock.json
+.agents/
