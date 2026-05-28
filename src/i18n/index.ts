@@ -12,13 +12,10 @@ function detectFromNavigator(): Locale {
     return 'en';
   }
   const candidates = [
-    ...(navigator.languages ?? []),
+    ...navigator.languages,
     navigator.language,
   ];
   for (const raw of candidates) {
-    if (raw === undefined || raw === null) {
-      continue;
-    }
     const short = raw.toLowerCase().slice(0, 2);
     if (isLocale(short)) {
       return short;

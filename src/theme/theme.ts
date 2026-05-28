@@ -16,7 +16,7 @@ export function loadTheme(): Theme {
   } catch {
     // localStorage may throw in privacy modes.
   }
-  if (typeof window !== 'undefined' && window.matchMedia) {
+  if (typeof window !== 'undefined') {
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   }
   return 'dark';

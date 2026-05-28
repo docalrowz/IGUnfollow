@@ -27,7 +27,7 @@ export function ThemeProvider({ children }: Props) {
 
   const setTheme = useCallback((next: Theme) => setThemeState(next), []);
   const toggleTheme = useCallback(
-    () => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark')),
+    () => setThemeState(prev => (prev === 'dark' ? 'light' : 'dark')),
     [],
   );
 

@@ -52,7 +52,7 @@ describe('unfollow log export helpers', () => {
 
     const hrefCall = setAttribute.mock.calls.find(([attr]) => attr === 'href');
     expect(hrefCall).toBeDefined();
-    const href = hrefCall![1] as string;
+    const href = hrefCall[1] as string;
     expect(href.startsWith('data:text/json;charset=utf-8,')).toBe(true);
 
     const decoded = decodeURIComponent(href.replace('data:text/json;charset=utf-8,', ''));
