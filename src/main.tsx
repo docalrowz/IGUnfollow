@@ -25,6 +25,7 @@ import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from './utils/
 import { DialogProvider, useConfirm } from './components/ui/ConfirmDialog';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { InstagramError } from './core/error-types';
+import { errorDetail, errorTitle } from './state/error-messages';
 import { useScanner } from './hooks/useScanner';
 import { useUnfollower } from './hooks/useUnfollower';
 import { ToastState } from './hooks/api-error-handler';
@@ -79,31 +80,6 @@ const _getPreviewUsers = (): readonly UserNode[] => [
   _createPreviewUser('11', 'keystone.labs', 'Mina Torres'),
   _createPreviewUser('12', 'lowlight.club', 'Owen Voss', { isPrivate: true }),
 ];
-
-function errorTitle(error: InstagramError): string {
-  switch (error.kind) {
-    case 'checkpoint': return 'Instagram requires you to verify this account';
-    case 'rate_limit': return 'Rate-limited by Instagram';
-    case 'csrf_expired': return 'Your Instagram session expired';
-    case 'network': return 'Network error';
-    case 'unknown': return 'Unexpected response from Instagram';
-  }
-}
-
-function errorDetail(error: InstagramError): string {
-  switch (error.kind) {
-    case 'checkpoint':
-      return 'The scan was stopped to avoid making things worse. Open Instagram in a normal tab, resolve the checkpoint, then come back.';
-    case 'rate_limit':
-      return 'Too many requests have been made. The circuit breaker tripped to protect your account.';
-    case 'csrf_expired':
-      return 'Instagram rotated your session token. Refresh the page and log back in.';
-    case 'network':
-      return 'Could not reach Instagram. Check your connection and try again.';
-    case 'unknown':
-      return `Status ${error.status}. See the developer console for the raw response.`;
-  }
-}
 
 interface ErrorScreenProps {
   readonly error: InstagramError;
@@ -442,7 +418,9 @@ function App() {
 }
 
 if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
-  alert('Can be used only on Instagram routes');
+  // Native alert() pre-render is blocking + jarring. Show a styled
+  // overlay instead. No React: DialogProvider would not yet be mounted.
+  renderHostnameError();
 } else {
   document.title = 'InstagramUnfollowers';
   // Mount inside our own root div instead of stomping on document.body.
@@ -464,4 +442,32 @@ if (location.hostname !== INSTAGRAM_HOSTNAME && !isLocalPreview) {
     </ErrorBoundary>,
     root,
   );
+}
+
+function renderHostnameError() {
+  const overlay = document.createElement('div');
+  overlay.setAttribute('role', 'alert');
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:2147483647',
+    'background:rgba(0,0,0,0.92)', 'color:#efefef',
+    'display:flex', 'flex-direction:column', 'align-items:center',
+    'justify-content:center', 'padding:32px', 'gap:16px',
+    'font-family:system-ui,sans-serif', 'font-size:15px',
+  ].join(';');
+  overlay.innerHTML = [
+    '<h2 style="margin:0;font-size:22px;">InstagramUnfollowers</h2>',
+    '<p style="max-width:520px;text-align:center;margin:0;line-height:1.5;color:#a3a3a3;">',
+    'This script can only run on <strong>www.instagram.com</strong>.',
+    ' Open Instagram in another tab and paste the script in the developer console there.',
+    '</p>',
+  ].join('');
+  const close = document.createElement('button');
+  close.textContent = 'Dismiss';
+  close.style.cssText = [
+    'padding:10px 20px', 'border-radius:8px', 'border:1px solid rgba(255,255,255,0.1)',
+    'background:#2563eb', 'color:white', 'cursor:pointer', 'font-size:14px',
+  ].join(';');
+  close.addEventListener('click', () => overlay.remove());
+  overlay.appendChild(close);
+  document.body.appendChild(overlay);
 }
